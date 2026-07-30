@@ -1,0 +1,60 @@
+name: Server Build Artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.6.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Stage artifact
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/server artifact/client artifact/shared
+          cp -a server/dist artifact/server/
+          cp -a server/src/prisma artifact/server/
+          cp server/package.json artifact/server/
+          cp -a client/dist artifact/client/
+          cp client/package.json artifact/client/
+          cp -a shared/dist artifact/shared/
+          cp shared/package.json artifact/shared/
+          cp package.json pnpm-lock.yaml pnpm-workspace.yaml artifact/
+          printf '%s\n' "$COMMIT_SHA" > artifact/REVISION
+          test -s artifact/server/dist/app.js
+          test -s artifact/client/dist/index.html
+          test -s artifact/shared/dist/index.js
+          tar -C artifact -czf "ai-novel-server-${COMMIT_SHA}.tar.gz" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-novel-server-${{ github.sha }}
+          path: ai-novel-server-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
