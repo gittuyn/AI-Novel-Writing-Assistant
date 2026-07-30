@@ -28,6 +28,7 @@
 
 - [ ] Add a manual-only workflow using Node.js 24 and pnpm 10.6.0.
 - [ ] Run `pnpm install --frozen-lockfile` and `pnpm build` on the hosted runner.
+- [ ] Generate the Prisma client before TypeScript compilation.
 - [ ] Stage only runtime build directories, Prisma metadata, and package manifests.
 - [ ] Assert required artifact files before upload.
 
@@ -57,4 +58,3 @@
 - [ ] Parse the workflow YAML and inspect trigger/commands.
 - [ ] Document the server deployment command and user-visible low-memory improvement.
 - [ ] Commit the verified change.
-

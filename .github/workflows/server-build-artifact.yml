@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: pnpm --filter @ai-novel/server prisma:generate
+
       - name: Build application
         run: pnpm build
 
@@ -57,4 +60,3 @@ jobs:
           path: ai-novel-server-${{ github.sha }}.tar.gz
           if-no-files-found: error
           retention-days: 14
-
