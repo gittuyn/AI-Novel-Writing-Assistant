@@ -61,8 +61,17 @@ jobs:
           # stay on the host so their Node.js ABI matches the systemd Node 22.
           PRISMA_CLIENT_REAL="$(readlink -f server/node_modules/@prisma/client)"
           PRISMA_MODULE_ROOT="$(dirname "$(dirname "$PRISMA_CLIENT_REAL")")"
+          PRISMA_RUNTIME_UTILS_REAL="$(python3 - <<'PY'
+          from pathlib import Path
+          candidates = sorted(Path('node_modules/.pnpm').glob('@prisma+client-runtime-utils@*/node_modules/@prisma/client-runtime-utils'))
+          if len(candidates) != 1:
+              raise SystemExit(f'expected one client-runtime-utils package, found {len(candidates)}')
+          print(candidates[0].resolve())
+          PY
+          )"
           mkdir -p artifact/server/node_modules/@prisma artifact/server/node_modules/.prisma
           cp -aL "$PRISMA_CLIENT_REAL" artifact/server/node_modules/@prisma/client
+          cp -aL "$PRISMA_RUNTIME_UTILS_REAL" artifact/server/node_modules/@prisma/client-runtime-utils
           cp -aL "$PRISMA_MODULE_ROOT/.prisma/client" artifact/server/node_modules/.prisma/client
 
           printf '%s\n' "$COMMIT_SHA" > artifact/REVISION
@@ -70,6 +79,8 @@ jobs:
           test -s artifact/server/prisma/schema.sqlite.prisma
           test -s artifact/server/prisma/migrations.sqlite/migration_lock.toml
           test -s artifact/server/node_modules/@prisma/client/default.js
+          test -s artifact/server/node_modules/@prisma/client-runtime-utils/package.json
+          test -s artifact/server/node_modules/@prisma/client-runtime-utils/index.js
           test -s artifact/server/node_modules/.prisma/client/default.js
           test -s artifact/client/dist/index.html
           test -s artifact/shared/dist/index.js
