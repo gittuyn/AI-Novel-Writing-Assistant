@@ -54,7 +54,7 @@ required=(
   server/prisma/migrations.sqlite/migration_lock.toml
   server/node_modules/@prisma/client/default.js
   server/node_modules/@prisma/client-runtime-utils/package.json
-  server/node_modules/@prisma/client-runtime-utils/index.js
+  server/node_modules/@prisma/client-runtime-utils/dist/index.js
   server/node_modules/.prisma/client/default.js
   client/dist/index.html
   shared/dist/index.js
