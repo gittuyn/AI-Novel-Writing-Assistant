@@ -96,6 +96,7 @@ SERVICE_STOPPED=false
 SERVICE_WAS_ACTIVE=false
 DB_BACKUP_CREATED=false
 INSTALL_STARTED=false
+MIGRATION_LEDGER_PRESENT=false
 ROLLBACK_ROOT=""
 BACKUP=""
 DATABASE="$APP_ROOT/server/dev.db"
@@ -197,25 +198,9 @@ if [[ -f "$DATABASE" ]]; then
     false
   }
   DB_BACKUP_CREATED=true
-fi
-
-# The original installation was created with db push and has no migration
-# ledger. Baseline the migrations already present on the host before swapping
-# in the newer migration set, so migrate deploy applies only new migrations.
-if [[ -f "$DATABASE" && "$(sqlite3 "$DATABASE" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';")" == 0 ]]; then
-  old_migrations=()
-  for migration_path in "$APP_ROOT/server/src/prisma/migrations.sqlite"/*; do
-    [[ -d "$migration_path" ]] || continue
-    old_migrations+=("${migration_path##*/}")
-  done
-  printf 'No Prisma migration ledger found; baselining %s existing migrations.\n' "${#old_migrations[@]}"
-  (
-    trap - ERR
-    cd "$APP_ROOT/server"
-    for migration in "${old_migrations[@]}"; do
-      pnpm exec prisma migrate resolve --applied "$migration" --config prisma.config.ts
-    done
-  )
+  if [[ "$(sqlite3 "$DATABASE" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';")" != 0 ]]; then
+    MIGRATION_LEDGER_PRESENT=true
+  fi
 fi
 
 ROLLBACK_ROOT="$APP_ROOT/.deploy-rollback-${REVISION:0:12}"
@@ -238,20 +223,36 @@ cp -a -- "$TEMP_DIR/server/prisma" "$APP_ROOT/server/src/prisma"
 cp -a -- "$TEMP_DIR/server/node_modules/@prisma/client" "$APP_ROOT/server/node_modules/@prisma/client"
 cp -a -- "$TEMP_DIR/server/node_modules/.prisma/client" "$APP_ROOT/server/node_modules/.prisma/client"
 
-# Apply only migrations shipped in the verified GitHub artifact, while the
-# service is stopped. The backup above makes a failed migration recoverable.
-(
-  trap - ERR
-  cd "$APP_ROOT/server"
-  pnpm run prisma:deploy
-)
+if "$MIGRATION_LEDGER_PRESENT"; then
+  (
+    trap - ERR
+    cd "$APP_ROOT/server"
+    pnpm run prisma:deploy
+  )
+else
+  printf 'No Prisma migration ledger found; synchronizing the existing database with the artifact schema.\n'
+  (
+    trap - ERR
+    cd "$APP_ROOT/server"
+    pnpm exec prisma db push --config prisma.config.ts
+    new_migrations=()
+    for migration_path in src/prisma/migrations.sqlite/*; do
+      [[ -d "$migration_path" ]] || continue
+      new_migrations+=("${migration_path##*/}")
+    done
+    printf 'Recording %s synchronized migrations as applied.\n' "${#new_migrations[@]}"
+    for migration in "${new_migrations[@]}"; do
+      pnpm exec prisma migrate resolve --applied "$migration" --config prisma.config.ts
+    done
+  )
+fi
 
 systemctl start "$SERVICE_NAME"
 for _ in {1..30}; do
   if curl -fsS "$HEALTH_URL" >/dev/null; then
     rm -rf -- "$ROLLBACK_ROOT"
     trap - ERR
-    printf 'Deployed %s; migrations applied; health check passed.\n' "$REVISION"
+    printf 'Deployed %s; database synchronized; health check passed.\n' "$REVISION"
     exit 0
   fi
   sleep 1
