@@ -100,21 +100,52 @@ ROLLBACK_ROOT=""
 BACKUP=""
 DATABASE="$APP_ROOT/server/dev.db"
 
+save_path() {
+  local spec="$1"
+  local rel="${spec%%|*}"
+  local key="${spec#*|}"
+  local src="$APP_ROOT/$rel"
+  local dest="$ROLLBACK_ROOT/$key"
+  local kind_file="$ROLLBACK_ROOT/$key.kind"
+
+  mkdir -p -- "$(dirname "$dest")"
+  if [[ -L "$src" ]]; then
+    printf 'symlink\n' > "$kind_file"
+    readlink "$src" > "$ROLLBACK_ROOT/$key.target"
+    rm -f -- "$src"
+  elif [[ -e "$src" ]]; then
+    mv -- "$src" "$dest"
+    printf 'regular\n' > "$kind_file"
+  else
+    printf 'absent\n' > "$kind_file"
+  fi
+}
+
 restore_old_paths() {
   [[ -n "$ROLLBACK_ROOT" && -d "$ROLLBACK_ROOT" ]] || return 0
   for spec in "${PATH_SPECS[@]}"; do
     rel="${spec%%|*}"
     key="${spec#*|}"
-    marker="$ROLLBACK_ROOT/$key.present"
-    [[ -f "$marker" ]] || continue
-    present="$(< "$marker")"
+    kind_file="$ROLLBACK_ROOT/$key.kind"
+    [[ -f "$kind_file" ]] || continue
+    kind="$(< "$kind_file")"
     if "$INSTALL_STARTED"; then
       rm -rf -- "$APP_ROOT/$rel"
     fi
-    if [[ "$present" == 1 && -e "$ROLLBACK_ROOT/$key" ]]; then
-      mkdir -p -- "$(dirname "$APP_ROOT/$rel")"
-      mv -- "$ROLLBACK_ROOT/$key" "$APP_ROOT/$rel"
-    fi
+    case "$kind" in
+      symlink)
+        mkdir -p -- "$(dirname "$APP_ROOT/$rel")"
+        ln -s "$(< "$ROLLBACK_ROOT/$key.target")" "$APP_ROOT/$rel"
+        ;;
+      regular)
+        if [[ -e "$ROLLBACK_ROOT/$key" ]]; then
+          mkdir -p -- "$(dirname "$APP_ROOT/$rel")"
+          mv -- "$ROLLBACK_ROOT/$key" "$APP_ROOT/$rel"
+        fi
+        ;;
+      absent) ;;
+      *) printf 'Unknown rollback entry type: %s\n' "$kind" >&2; return 1 ;;
+    esac
   done
 }
 
@@ -168,6 +199,25 @@ if [[ -f "$DATABASE" ]]; then
   DB_BACKUP_CREATED=true
 fi
 
+# The original installation was created with db push and has no migration
+# ledger. Baseline the migrations already present on the host before swapping
+# in the newer migration set, so migrate deploy applies only new migrations.
+if [[ -f "$DATABASE" && "$(sqlite3 "$DATABASE" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';")" == 0 ]]; then
+  old_migrations=()
+  for migration_path in "$APP_ROOT/server/src/prisma/migrations.sqlite"/*; do
+    [[ -d "$migration_path" ]] || continue
+    old_migrations+=("${migration_path##*/}")
+  done
+  printf 'No Prisma migration ledger found; baselining %s existing migrations.\n' "${#old_migrations[@]}"
+  (
+    trap - ERR
+    cd "$APP_ROOT/server"
+    for migration in "${old_migrations[@]}"; do
+      pnpm exec prisma migrate resolve --applied "$migration" --config prisma.config.ts
+    done
+  )
+fi
+
 ROLLBACK_ROOT="$APP_ROOT/.deploy-rollback-${REVISION:0:12}"
 [[ ! -e "$ROLLBACK_ROOT" ]] || {
   printf 'Rollback directory already exists: %s\n' "$ROLLBACK_ROOT" >&2
@@ -176,16 +226,7 @@ ROLLBACK_ROOT="$APP_ROOT/.deploy-rollback-${REVISION:0:12}"
 mkdir -- "$ROLLBACK_ROOT"
 
 for spec in "${PATH_SPECS[@]}"; do
-  rel="${spec%%|*}"
-  key="${spec#*|}"
-  src="$APP_ROOT/$rel"
-  dest="$ROLLBACK_ROOT/$key"
-  if [[ -e "$src" || -L "$src" ]]; then
-    mv -- "$src" "$dest"
-    printf '1\n' > "$dest.present"
-  else
-    printf '0\n' > "$dest.present"
-  fi
+  save_path "$spec"
 done
 
 INSTALL_STARTED=true
@@ -200,6 +241,7 @@ cp -a -- "$TEMP_DIR/server/node_modules/.prisma/client" "$APP_ROOT/server/node_m
 # Apply only migrations shipped in the verified GitHub artifact, while the
 # service is stopped. The backup above makes a failed migration recoverable.
 (
+  trap - ERR
   cd "$APP_ROOT/server"
   pnpm run prisma:deploy
 )
