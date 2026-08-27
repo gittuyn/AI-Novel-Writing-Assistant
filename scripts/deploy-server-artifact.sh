@@ -53,6 +53,8 @@ required=(
   server/prisma/schema.sqlite.prisma
   server/prisma/migrations.sqlite/migration_lock.toml
   server/node_modules/@prisma/client/default.js
+  server/node_modules/@prisma/client-runtime-utils/package.json
+  server/node_modules/@prisma/client-runtime-utils/index.js
   server/node_modules/.prisma/client/default.js
   client/dist/index.html
   shared/dist/index.js
@@ -89,6 +91,7 @@ PATH_SPECS=(
   'shared/dist|shared-dist'
   'server/src/prisma|server-prisma'
   'server/node_modules/@prisma/client|prisma-client'
+  'server/node_modules/@prisma/client-runtime-utils|prisma-runtime-utils'
   'server/node_modules/.prisma/client|prisma-generated'
 )
 
@@ -221,6 +224,7 @@ cp -a -- "$TEMP_DIR/client/dist" "$APP_ROOT/client/"
 cp -a -- "$TEMP_DIR/shared/dist" "$APP_ROOT/shared/"
 cp -a -- "$TEMP_DIR/server/prisma" "$APP_ROOT/server/src/prisma"
 cp -a -- "$TEMP_DIR/server/node_modules/@prisma/client" "$APP_ROOT/server/node_modules/@prisma/client"
+cp -a -- "$TEMP_DIR/server/node_modules/@prisma/client-runtime-utils" "$APP_ROOT/server/node_modules/@prisma/client-runtime-utils"
 cp -a -- "$TEMP_DIR/server/node_modules/.prisma/client" "$APP_ROOT/server/node_modules/.prisma/client"
 
 if "$MIGRATION_LEDGER_PRESENT"; then
