@@ -80,7 +80,7 @@ jobs:
           test -s artifact/server/prisma/migrations.sqlite/migration_lock.toml
           test -s artifact/server/node_modules/@prisma/client/default.js
           test -s artifact/server/node_modules/@prisma/client-runtime-utils/package.json
-          test -s artifact/server/node_modules/@prisma/client-runtime-utils/index.js
+          test -s artifact/server/node_modules/@prisma/client-runtime-utils/dist/index.js
           test -s artifact/server/node_modules/.prisma/client/default.js
           test -s artifact/client/dist/index.html
           test -s artifact/shared/dist/index.js
