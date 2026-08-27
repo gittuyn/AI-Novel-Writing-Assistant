@@ -1,0 +1,84 @@
+name: Server Build Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Git ref to build
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.6.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @ai-novel/server prisma:generate
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Stage deployable artifact
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/server artifact/client artifact/shared
+          cp -a server/dist artifact/server/
+          cp -a server/src/prisma artifact/server/prisma
+          cp server/package.json server/prisma.config.ts artifact/server/
+          cp -a client/dist artifact/client/
+          cp client/package.json artifact/client/
+          cp -a shared/dist artifact/shared/
+          cp shared/package.json artifact/shared/
+          cp package.json pnpm-lock.yaml pnpm-workspace.yaml artifact/
+          cp scripts/deploy-server-artifact.sh artifact/
+
+          # Include only the generated Prisma runtime. Other native dependencies
+          # stay on the host so their Node.js ABI matches the systemd Node 22.
+          PRISMA_CLIENT_REAL="$(readlink -f server/node_modules/@prisma/client)"
+          PRISMA_MODULE_ROOT="$(dirname "$(dirname "$PRISMA_CLIENT_REAL")")"
+          mkdir -p artifact/server/node_modules/@prisma artifact/server/node_modules/.prisma
+          cp -aL "$PRISMA_CLIENT_REAL" artifact/server/node_modules/@prisma/client
+          cp -aL "$PRISMA_MODULE_ROOT/.prisma/client" artifact/server/node_modules/.prisma/client
+
+          printf '%s\n' "$COMMIT_SHA" > artifact/REVISION
+          test -s artifact/server/dist/app.js
+          test -s artifact/server/prisma/schema.sqlite.prisma
+          test -s artifact/server/prisma/migrations.sqlite/migration_lock.toml
+          test -s artifact/server/node_modules/@prisma/client/default.js
+          test -s artifact/server/node_modules/.prisma/client/default.js
+          test -s artifact/client/dist/index.html
+          test -s artifact/shared/dist/index.js
+          tar -C artifact -czf "ai-novel-server-${COMMIT_SHA}.tar.gz" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-novel-server-${{ github.sha }}
+          path: ai-novel-server-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
